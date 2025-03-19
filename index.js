@@ -55,11 +55,15 @@ const saveUsers = (users) => {
   fs.writeFileSync(USERS_DB_FILE, JSON.stringify(users, null, 2))
 }
 
-const registerUser = async (username, password) => {
-  let users = loadUsers()
-  const existingUser = users.find(u => u.username === username)
-  if (existingUser) throw new Error('This user already exists, try another username')
+const registerUser = async (username, password, mode = "slow") => { // Can be changed to fast
+    let users = loadUsers();
+    const existingUser = users.find(u => u.username === username);
+    if (existingUser) throw new Error("This user already exists, try another username");
 
+    const argon2Config = {
+        fast: { timeCost: 2, memoryCost: 65536, parallelism: 1 }, // <1s
+        slow: { timeCost: 5, memoryCost: 1048576, parallelism: 4 } // >3s
+    };
   const hashedPassword = await argon2.hash(password) // Use Argon2
 
   users.push({ username, password: hashedPassword })
