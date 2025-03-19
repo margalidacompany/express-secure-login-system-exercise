@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>User Home</title>
+    <script>
+        async function logout() {
+            await fetch("/logout", { method: "GET", credentials: "include" });
+            alert("Logged out successfully!");
+            window.location.href = "/login"; // Redirige al login después de cerrar sesión
+        }
+    </script>
+</head>
+<body>
+    <h2>Welcome!</h2>
+    <p>You have successfully logged in.</p>
+    
+    <!-- Botón de Logout -->
+    <button onclick="logout()">Logout</button>
+</body>
+</html>
