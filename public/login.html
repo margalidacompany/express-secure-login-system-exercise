@@ -9,20 +9,50 @@
 <body>
     <p><strong>Want to access your personal web page?</strong></p>
     <p>Please log in to proceed</p>
-    <form action="/login" method="post">  <!-- when the formulary is submitted, it will be POSTed to /login-->
+
+    <!-- Login local -->
+    <form action="/login" method="post">
         <div>
             <label>Username:</label>
-            <input type="text" name="username" />  <!-- the name MUST match the one defined in the local 'username-password' strategy -->
+            <input type="text" name="username" />
         </div>
         <div>
             <label>Password:</label>
-            <input type="password" name="password" /> <!-- the name MUST match the one defined in the local 'username-password' strategy -->
+            <input type="password" name="password" />
         </div>
         <div>
             <input type="submit" value="Log In" />
         </div>
     </form>
+
     <p>Don't have an account? <a href="/register">Register here</a></p>
+
+    <!-- OAuth 2.0 -->
+    <a href="/auth/google">
+        <button>Login with Google (OAuth2.0)</button>
+    </a>
+
+    <!-- OIDC -->
+    <a href="/oidc/login">
+        <button>Login with Google (OIDC)</button>
+    </a>
+
+    <!-- RADIUS -->
+    <h3>Login with RADIUS</h3>
+    <form action="/login-radius" method="post">
+        <div>
+            <label>Username:</label>
+            <input type="text" name="username" />
+        </div>
+        <div>
+            <label>Password:</label>
+            <input type="password" name="password" />
+        </div>
+        <div>
+            <input type="submit" value="Login with RADIUS" />
+        </div>
+    </form>
+
 </body>
 
 </html>
