@@ -27,5 +27,7 @@ This project implements a secure authentication system using:
 
 ### Notes
 The project uses .env files to manage sensitive credentials (Google OAuth, OIDC, session secrets, etc.).
+
 JWT tokens are generated and stored in secure cookies with expiration times.
+
 Users authenticated via different methods (local, Google OAuth, OIDC, RADIUS) are stored in a single users.json file for simplicity.
