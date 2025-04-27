@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express')
 const logger = require('morgan')
 const passport = require('passport')
@@ -10,6 +11,17 @@ const https = require('https')
 const path = require('path')
 const argon2 = require('argon2')
 
+const session = require('express-session');
+const GoogleStrategy = require('passport-google-oauth20').Strategy; //oauth
+
+const { Issuer, Strategy: OpenIDConnectStrategy } = require('openid-client'); //openid
+
+const RadiusClient = require('node-radius-client'); //radius
+const {
+  dictionaries: {
+    rfc2865: { file, attributes },
+  },
+} = require('node-radius-utils');
 
 const USERS_DB_FILE = './users.json'
 const jwtSecret = require('crypto').randomBytes(16) // 16*8=256 random bits
@@ -38,8 +50,17 @@ app.use(logger('dev'))
 app.use(cookieParser()) // needed to retrieve cookies
 app.use(express.static('public')) //folder public where html
 app.use(express.urlencoded({ extended: true })) // needed to retrieve html form fields (it's a requirement of the local strategy)
+app.use(session({
+  //secret: process.env.SESSION_SECRET, 
+  secret: require('crypto').randomBytes(32).toString('base64url'),
+  resave: false,
+  saveUninitialized: false
+}));
 app.use(passport.initialize()) // we load the passport auth middleware to our express application. It should be loaded before any route.
+app.use(passport.session()); // indicate to express that passport manages sessions
 
+passport.serializeUser((user, done) => done(null, user)); //when good oauth2.0 it saves the user in the session
+passport.deserializeUser((obj, done) => done(null, obj)); //saves the user when changes pages
 
 
 
@@ -125,6 +146,90 @@ passport.use('jwtCookie', new JwtStrategy(
   }
 ))
 
+passport.use(new GoogleStrategy({
+  clientID: process.env.CLIENT_ID,
+  clientSecret: process.env.CLIENT_SECRET,
+  callbackURL: 'https://localhost:443/auth/google/callback'
+}, async (accessToken, refreshToken, profile, done) => {
+  const users = loadUsers();
+  const email = profile.emails[0].value;
+  let user = users.find(u => u.username === email);
+
+  if (!user) {
+    // if not exist register
+    user = {
+      username: email,
+      googleId: profile.id,
+      fromGoogle: true
+    };
+    users.push(user);
+    saveUsers(users);
+    console.log(`Google user registered: ${email}`);
+  }
+
+  return done(null, user);
+}));
+
+
+(async () => {
+  try {
+    const googleIssuer = await Issuer.discover('https://accounts.google.com'); //to get the config used by google
+    
+    const client = new googleIssuer.Client({ //from .env
+      client_id: process.env.OIDC_CLIENT_ID,
+      client_secret: process.env.OIDC_CLIENT_SECRET,
+      redirect_uris: [process.env.OIDC_CALLBACK_URL],
+      response_types: ['code']
+    });
+
+    passport.use('oidc', new OpenIDConnectStrategy({ client }, (tokenset, userinfo, done) => {
+      if (!userinfo) {
+        return done('No user info received');
+      }
+      return done(null, userinfo);
+    }));
+
+    console.log('OIDC strategy successfull');
+
+  } catch (err) {
+    console.error('Error setting up OIDC strategy:', err);
+  }
+})();
+
+
+passport.use('local-radius', new LocalStrategy(
+  {
+    usernameField: 'username',  //input sent in login
+    passwordField: 'password',
+    session: false 
+  },
+  async (username, password, done) => {
+    try {
+      const client = new RadiusClient({
+        host: '127.0.0.1', // nuestro FreeRADIUS local
+        dictionaries: [file],
+      });
+
+      const response = await client.accessRequest({
+        secret: 'testing123', // default radius secret
+        attributes: [
+          [attributes.USER_NAME, username],
+          [attributes.USER_PASSWORD, password],
+        ],
+      });
+
+      console.log('RADIUS response:', response);
+
+      return done(null, { username });
+
+    } catch (error) {
+      console.error('RADIUS authentication failed:', error);
+      return done(null, false, { message: 'Invalid credentials (RADIUS)' });
+    }
+  }
+));
+
+
 
 
 
@@ -144,16 +249,35 @@ app.get('/logout', (req, res) => {
   res.redirect('/login') 
 })
 
+app.get('/auth/google',
+  passport.authenticate('google', { scope: ['profile', 'email'], state: true }) //true es CSRF protection
+);
+
+app.get('/oidc/login',
+  passport.authenticate('oidc', { scope: 'openid email profile' })
+);
+
+
+
 
 /*
 Protected paths
 */
 app.get('/home',
-  passport.authenticate('jwtCookie', { session: false, failureRedirect: '/login' }),
+  (req, res, next) => {
+    if (req.isAuthenticated()) return next(); // by google
+    passport.authenticate('jwtCookie', { session: false }, (err, user, info) => {
+      if (err) return next(err);
+      if (!user) return res.redirect('/login');
+      req.user = user;
+      next();
+    })(req, res, next);
+  },
   (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'home.html'))
   }
-)
+);
+
 
 app.get('/',
   passport.authenticate(
@@ -164,6 +288,47 @@ app.get('/',
     res.redirect('/home')
   }
 )
+app.get('/auth/google/callback',
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  (req, res) => {
+    console.log('correct google authentication:', req.user);
+    res.redirect('/home');
+  }
+);
+
+app.get('/oidc/callback',
+  passport.authenticate('oidc', { failureRedirect: '/login' }),
+  (req, res) => {
+    // compares user with db
+    const users = loadUsers();
+    const email = req.user.email;
+    let user = users.find(u => u.username === email); //if in db
+    if (!user) { //if new
+      user = {
+        username: email,
+        fromOIDC: true
+      };
+      users.push(user);
+      saveUsers(users);
+      console.log(`OIDC user registered: ${email}`);
+    }
+
+    const jwtClaims = { //creation of JWT
+      sub: email,
+      iss: 'localhost',
+      aud: 'localhost',
+      exp: Math.floor(Date.now() / 1000) + 604800,
+      role: 'user'
+    };
+
+    const token = jwt.sign(jwtClaims, jwtSecret);
+
+    res.cookie('jwt', token, { httpOnly: true, secure: true });
+    console.log(`OIDC login successful, JWT issued for: ${email}`);
+    res.redirect('/home');
+  }
+);
+
 
 
 
@@ -215,6 +380,35 @@ app.post('/login',
     console.log(`Token secret (for verifying the signature): ${jwtSecret.toString('base64')}`)
   }
 )
+app.post('/login-radius',
+  passport.authenticate('local-radius', { failureRedirect: '/login', session: false }),
+  (req, res) => {
+    // add users to the json db (not necessary but usefull to see the users
+    const users = loadUsers();
+    const existingUser = users.find(u => u.username === req.user.username);
+
+    if (!existingUser) {
+      users.push({ username: req.user.username, fromRadius: true });
+      saveUsers(users);
+      console.log(`User saved from RADIUS login: ${req.user.username}`);
+    }
+
+    const jwtClaims = {
+      sub: req.user.username,
+      iss: 'localhost',
+      aud: 'localhost',
+      exp: Math.floor(Date.now() / 1000) + 604800, // 1 setmana
+      role: 'user'
+    };
+
+    const token = jwt.sign(jwtClaims, jwtSecret);
+
+    res.cookie('jwt', token, { httpOnly: true, secure: true });
+    console.log(`RADIUS login successful, JWT issued for: ${req.user.username}`);
+    res.redirect('/home');
+  }
+);
+
 
 
 
