@@ -7,13 +7,30 @@
   },
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "This project implements a secure authentication system using: - express.js as the backend framework. - Passport.js for authentication handling. - Argon2 for password hashing. - JSON Web Tokens (JWT) for stateless sessions. - HTTPS for secure communication. - User storage in a JSON file (can be adapted to a database).",
   "dependencies": {
     "argon2": "^0.41.1",
     "cookie-parser": "^1.4.7",
-    "express": "^4.21.2",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "express-session": "^1.18.1",
+    "google-auth-library": "^9.15.1",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
+    "node-fetch": "^3.3.2",
+    "node-radius-client": "^1.0.0",
+    "openid-client": "^4.7.4",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-openidconnect": "^0.1.2",
     "scrypt-kdf": "^3.0.0"
+  },
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest",
+    "nodemon": "^3.1.10"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
   }
 }
